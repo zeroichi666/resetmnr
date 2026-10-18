@@ -1,0 +1,13 @@
+{
+  "name": "resetmnr-safe-setup",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Windows-friendly supervised setup for a pinned official RESET signer with restricted MCP tools",
+  "type": "module",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "check": "node bin/check-install.mjs",
+    "mcp": "node bin/reset-safe.mjs"
+  }
+}

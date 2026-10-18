@@ -1,0 +1,10 @@
+{
+  "repository": "https://github.com/Trac-Systems/reset.git",
+  "commit": "6132e8653d6342f36673eb7426ec8e064960e48e",
+  "signerVersion": "0.1.0",
+  "signerSdkVersion": "1.32.1",
+  "license": "MIT",
+  "installation": "Fetch this exact commit into vendor/upstream, then npm ci inside signer.",
+  "minimumNodeForThisPackage": "24",
+  "documentationNote": "Root README requires Node 24 or newer; signer README mentions older Node 23.11. Use the stricter root requirement."
+}

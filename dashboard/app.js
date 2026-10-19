@@ -4,6 +4,8 @@
   const ids = ['connection', 'connectionText', 'offlineBanner', 'liveRegion', 'phaseLabel', 'phasePill', 'address', 'mode', 'startedAt', 'lastChecked', 'lastAction', 'eventsList', 'confirmCheck', 'startBtn', 'stopBtn', 'actionFeedback', 'terminalHint', 'journalState', 'journalEmpty', 'journalData', 'journalKind', 'journalRound', 'journalExposure', 'journalTip', 'blockBanner', 'blockReason', 'modeBanner', 'refreshBtn', 'publicStatePill', 'publicStatusMessage', 'publicBalance', 'publicDeposit', 'publicFairShare', 'publicTip', 'publicRound', 'publicWindow', 'publicTimes', 'publicExits', 'publicClaim', 'publicLastSuccess', 'publicCheckedAt'];
   const els = Object.fromEntries(ids.map(id => [id, $(id)]));
   let status = null, csrf = '', online = false, busy = false, loadingPublic = false, publicSnapshot = null;
+  const AUTO_REFRESH_MS = 180_000;
+  let refreshTimer = null, loadingLocal = false;
   const phases = { idle: ['Siap', 'IDLE'], starting: ['Memulai', 'STARTING'], running: ['Berjalan', 'RUNNING'], stopping: ['Menghentikan', 'STOPPING'], stopped: ['Berhenti', 'STOPPED'], error: ['Error · periksa manual', 'ERROR'] };
   const labels = { unchecked: 'BELUM DIPERIKSA', ready: 'SNAPSHOT', unavailable: 'TIDAK TERSEDIA', loading: 'MEMUAT' };
   const safe = (value, fallback = 'Tidak tersedia') => value === null || value === undefined || value === '' ? fallback : String(value);
@@ -78,7 +80,7 @@
     els.publicTimes.textContent = `Blok mulai ${block(m.start)} · batas claim ${block(m.claim_end)} · akhir ${block(m.end)}`;
     els.publicExits.textContent = !Array.isArray(d.exits) ? 'Tidak tersedia' : d.exits.length ? d.exits.map(e => `${coins(e.amount)} · release blok ${block(e.release)}${e.mature === true ? ' · matang' : ''}`).join('; ') : 'Tidak ada';
     els.publicClaim.textContent = d.claim === null ? 'Tidak ada' : d.claim ? `${coins(d.claim.deposit)} · level ${block(d.claim.level)}` : 'Tidak tersedia';
-    els.publicStatusMessage.textContent = `Sumber: ${p.source === 'demo' ? 'DEMO · sintetis' : 'gateway publik'} · snapshot saat diperiksa, bukan saldo real-time atau finalitas. Refresh manual tanpa password.`;
+    els.publicStatusMessage.textContent = `Sumber: ${p.source === 'demo' ? 'DEMO · sintetis' : 'gateway publik'} · snapshot saat diperiksa, bukan saldo real-time atau finalitas. Refresh otomatis tiap 3 menit atau manual, tanpa password.`;
   }
   function render(data) {
     if (!data || !Object.hasOwn(phases, data.phase) || typeof data.csrf !== 'string' || !/^[0-9a-f]{64}$/.test(data.address)) throw new Error('Status lokal tidak valid');
@@ -93,7 +95,7 @@
     els.blockBanner.hidden = !data.blocked; els.blockReason.textContent = data.blockReason || '';
     renderJournal(data.journal); renderEvents(data.events); renderPublic(data.publicStatus);
     if (data.mode === 'demo') els.terminalHint.textContent = 'Demo hanya memakai data sintetis di memori. Tidak ada password, wallet, atau transaksi nyata.';
-    else if (data.phase === 'starting') els.terminalHint.textContent = 'Masukkan password wallet di terminal WSL. Setelah itu klik Refresh status untuk melihat fase terbaru; tidak ada auto-refresh.';
+    else if (data.phase === 'starting') els.terminalHint.textContent = 'Masukkan password wallet di terminal WSL. Fase diperbarui tiap 3 menit atau klik Refresh status; refresh tidak memulai worker.';
     else if (data.phase === 'stopping') els.terminalHint.textContent = 'Menunggu operasi aktif selesai/abort. Klik Refresh status untuk fase terbaru. Transaksi terkirim tidak dibatalkan; dana tidak dibuka.';
     else els.terminalHint.textContent = 'Setelah klik Mulai, masukkan password di terminal WSL. Menutup tab tidak menghentikan worker; gunakan Hentikan atau Ctrl+C di terminal.';
     if (changed) notify(`Status worker: ${phase[0]}.`);
@@ -109,12 +111,14 @@
     renderPublic({ state: 'unavailable', checkedAt: new Date().toISOString(), lastSuccessAt: publicSnapshot?.lastSuccessAt || null, source: publicSnapshot?.source || 'live', error: error.message, data: null });
   }
   async function readLocal() {
-    if (busy) return;
+    if (busy || loadingLocal) return;
+    loadingLocal = true;
     try { render(await request('/api/status')); setOnline(true); }
     catch (error) { status = null; csrf = ''; setOnline(false); publicFail(error); feedback(`Tidak dapat membaca status: ${error.message}`); notify('Koneksi offline. Status worker tidak diketahui; refresh manual dapat dicoba lagi.'); }
+    finally { loadingLocal = false; }
   }
   async function refresh() {
-    if (loadingPublic || busy) return;
+    if (loadingPublic || loadingLocal || busy) return;
     loadingPublic = true; els.refreshBtn.textContent = 'Menyegarkan…'; controls();
     renderPublic({ ...publicSnapshot, state: 'loading', data: null, error: null });
     try {
@@ -145,5 +149,13 @@
   els.startBtn.addEventListener('click', () => act('start'));
   els.stopBtn.addEventListener('click', () => act('stop'));
   els.refreshBtn.addEventListener('click', refresh);
-  readLocal(); // One local/cache read only; no timer and no public fetch on load.
+  function startAutoRefresh() {
+    if (refreshTimer === null) refreshTimer = setInterval(refresh, AUTO_REFRESH_MS);
+  }
+  window.addEventListener('pagehide', () => {
+    clearInterval(refreshTimer); refreshTimer = null;
+  });
+  window.addEventListener('pageshow', startAutoRefresh); // Restore after back/forward cache, without duplicate timers.
+  readLocal(); // Cache only on load; first automatic public refresh is after 3 minutes.
+  startAutoRefresh(); // Browser-page lifetime only; busy ticks are skipped, never queued.
 })();

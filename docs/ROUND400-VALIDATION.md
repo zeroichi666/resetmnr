@@ -1,59 +1,65 @@
-# Round-400 abandonment: offline validation
+# Round-400 abandonment and narrow legacy-halt compatibility
 
 ## Result
 
-**246 tests passed; 0 failed, 0 skipped, 0 cancelled, 0 todo.** The combined run covers eight selected test files, not the project's entire suite. JavaScript syntax and whitespace checks also pass.
+**384 tests passed in the full suite; 0 failed, skipped, cancelled or todo.** The targeted guarded run passed **277 tests**, also with no failures or omissions. These are overlapping runs, not 661 distinct tests. JavaScript syntax checks and `git diff --check` pass.
 
-Environment: Node.js `v24.19.0`, Linux Sandbox. HEAD remains `4787d54a6307aae03c1aba73457a05511b0dcaae`; no commit or push was made.
+Changes are local in the Linux Sandbox, based on HEAD `6b48944`; no commit or push was made. No user WSL journal, lease or wallet was accessed. No gateway, wallet unlock, actual signing, live worker or transaction was used.
 
-The exact combined command is:
+## What the change fixes
+
+The shared parser now recognizes exactly one legacy `{type:"halt",intentWritten:false}` immediately after an already validated round-400 abandonment, with no pending action. It keeps the marker and all bytes unchanged. It preserves the original lock attempt, claim-round 400 deduplication, minimum future round 401, prior checkpoint and exposure.
+
+This removes that specific journal-inspection blocker in a fresh dashboard process if no lease is present. It does not fix the historical runtime error or establish that the round-400 submission failed. An existing dashboard session in its error phase remains blocked. Every worker start remains a separate explicit manual action, and all fresh-state checks still apply.
+
+Normal future intent/observed records may follow the marker so a manually requested claim401 does not make later restarts unparsable. Any second or later halt, `halt:true`, pending intent, hold, wrong shape, extra field, invalid audit or unsafe history remains blocked. New non-action failures carry a fixed `failureStage` and are deliberately not eligible for the legacy exception, including a newly detected exposure regression immediately after abandonment.
+
+The abandonment command itself is unchanged. Its post-write verification still requires exactly the expected durable bytes: an injected extra legacy marker fails the append audit and leaves its blocking lease, even though that marker alone is now parseable. Existing/unsafe leases are not removed or taken over.
+
+## Tests run
+
+Full suite:
+
+```bash
+npm test
+```
+
+Targeted offline run:
 
 ```bash
 node --import ./tests/fixtures/round400-offline-guard.mjs --test \
-  tests/round400-recovery.test.mjs \
   tests/round400-abandon.test.mjs \
   tests/round400-abandon-cli.test.mjs \
-  tests/worker-policy.test.mjs \
+  tests/round400-recovery.test.mjs \
+  tests/worker-dashboard-journal.test.mjs \
   tests/worker-live.test.mjs \
-  tests/worker-live-port.test.mjs \
   tests/worker-live-start.test.mjs \
-  tests/worker-live-journal.test.mjs
+  tests/worker-live-diagnostics.test.mjs
 ```
 
-The guard blocks network, child processes, and wallet/keystore/private runtime paths. All file writes use synthetic temporary journals and leases. Worker-class tests use synthetic in-memory ports and mock results, never a live worker runtime, actual signing, wallet, or gateway. Existing adapter tests use local pure validators and mock signing/submission only. No worker CLI, daemon, dashboard, or live signer process was started.
+Logs on the preparation computer: `/tmp/reset-narrow-reconcile-full.log` and `/tmp/reset-narrow-reconcile-focused.log`.
 
-## What was verified
+The targeted guard blocks network, child processes and private wallet/runtime paths while allowing synthetic temporary journal fixtures. The full suite additionally exercises local HTTP loopback tests and mock CLI subprocesses; valid CLI tests replace the live runtime. No external gateway is used. All solver, signature and submission operations are synthetic mocks, not cryptographic/live operations.
 
-The independent abandon path needs no status evidence. It requires the exact original pending claim400 intent, preceding lock399, preserved halt, matching identity, a confirmation bound to SHA-256 of the complete raw original journal, and the exact reward-may-be-forfeited/no-retry acknowledgment.
+Coverage includes repeated read-only parsing without mutation, exact raw-prefix audit hashes and whitespace, no implicit startup, lease retention, round400 no-retry, claim401/402 level1000 and restart deduplication, no second lock, cap/exposure regression, pending intent with misleading false flag, durable-intent append exceptions, holds, malformed journals, new classified failures and sanitized diagnosis. Existing fault-injection and 2,000-height synthetic invariant tests also pass.
 
-Successful synthetic append preserves the original bytes and journal inode, adds one `abandon_claim`, records outcome unknown, never adds a claim400 observation or success, verifies the durable journal through the shared parser, and releases only the new recovery lease. Existing leases are refused and left unchanged. Duplicate abandonment is refused.
+## Safe diagnosis, not a root-cause claim
 
-Persistent journal metadata hashes actual byte prefixes, including whitespace, identity, intent, and halt; hashes are not derived from reserialized objects. Metadata survives append/reopen and its getters return copies. The worker rejects missing/forged prefix metadata, wrong record hash/token/acknowledgment, changed identity/action/checkpoint, false outcome claims, unknown keys, duplicate abandon records, and injected round400 intents.
+Only a locally created error registered in a private WeakMap can expose an allowlisted stage. CLI and dashboard never relay raw exception messages, causes, remote codes, passwords, tokens, wallet material or hashes. Examples include `snapshot-read`, `snapshot-validation`, `snapshot-monotonicity`, `journal-intent`, `submission` and `startup-unlock`. A read-stage error may include validation inside the signer port; the stage is not proof of a network failure. Legacy markers have no diagnosis, so this cannot recover their historical cause.
 
-Synthetic manual restart tests show no preparation/signing/submission for round400, eligible level-1000 claims for rounds401/402, claim deduplication after reopen even if a later view loses the claim, retained lock-attempt history, no re-lock or top-up after deposit changes, and rejection of exposure above 0.1. A later ordinary halt remains blocking. Existing regressions include a pure 2,000-height simulation preserving the exposure cap and level1000.
+Intentional cancellation during an operation still follows the existing conservative halt behavior; it is not automatically cleared. Pre-journal installation/rules checks still fail before signer import/unlock, without writing a journal diagnosis. Neither boundary was relaxed.
 
-Fault injections reach the real append/release paths with valid confirmation and acknowledgment. Coverage includes zero/short/partial writes, directory/file fsync failure, failure closing the append descriptor after validation, removal failure, final release-directory fsync failure, concurrent acquisition, changed/nonempty lease identity, and post-write content tampering. Uncertain operations do not report success; retained or re-established leases block ordinary journal open. Cleanup never intentionally removes an existing or detected replacement lease.
+## Exact files changed for this extension
 
-The retained evidence-hold path also passes its tests: stale/future evidence, later-round claim-null ambiguity, insufficient counted height, unsafe exposure/claims, malformed and ambiguous JSON, invalid UTF-8, partial/oversized records, unsafe ownership/permissions/symlinks/hardlinks, changed input bytes, and repeated invocation are rejected. The hold path is not a prerequisite for abandonment and remains terminal.
+- `lib/worker-live.mjs`: immediate legacy compatibility plus static failure staging; all action guards retained.
+- `lib/worker-live-start.mjs`: sanitized startup stages; new non-action halts stay sticky.
+- `lib/worker-live-diagnostics.mjs` (new): private allowlisted error diagnosis.
+- `lib/worker-dashboard-journal.mjs`: comment aligned with the shared parser; inspection remains read-only.
+- `lib/worker-dashboard-controller.mjs`: safe diagnostic event; no automatic retry or error-phase reset.
+- `bin/reset-worker-live.mjs`: safe diagnostic category in CLI error output.
+- `tests/round400-abandon.test.mjs`: compatibility, future restart, audit, lease and regression tests.
+- `tests/worker-dashboard-journal.test.mjs`: read-only compatibility and fail-closed dashboard tests.
+- `tests/worker-live-diagnostics.test.mjs` (new): sanitized error, startup and dashboard lifecycle tests.
+- `README.md`, `docs/WORKER.md`, `docs/ROUND400-RECOVERY.md`, `docs/ROUND400-VALIDATION.md`: matching behavior and test documentation.
 
-## Files changed in this extension
-
-1. `/home/ubuntu/resetmnr/lib/round400-abandon-policy.mjs` — new exact record schema, target/identity checks, hash token, and explicit forfeiture acknowledgment.
-2. `/home/ubuntu/resetmnr/lib/worker-live.mjs` — shared pure history validator, narrowly allowed abandon transition, consumed round400, minimum future round401, unchanged ordinary-halt safety.
-3. `/home/ubuntu/resetmnr/lib/worker-live-journal.mjs` — validated raw-byte prefix audit hashes, persistent append/reopen metadata, ambiguous-JSON rejection.
-4. `/home/ubuntu/resetmnr/lib/round400-recovery.mjs` — separate abandon inspection/append, durable post-write validation, conservative owned-lease release; retained hold path.
-5. `/home/ubuntu/resetmnr/bin/reset-reconcile-round400.mjs` — mutually exclusive abandon/hold modes, exact confirmation and acknowledgment arguments, no worker startup.
-6. `/home/ubuntu/resetmnr/tests/round400-abandon.test.mjs` — new synthetic parser/restart/append/crash/lease tests.
-7. `/home/ubuntu/resetmnr/tests/round400-abandon-cli.test.mjs` — new direct CLI tests without subprocesses.
-8. `/home/ubuntu/resetmnr/docs/ROUND400-RECOVERY.md` — operator procedure, unknown-outcome semantics, evidence limitations, manual-start boundary, and crash handling.
-9. `/home/ubuntu/resetmnr/docs/ROUND400-VALIDATION.md` — this validation summary.
-
-The earlier `/home/ubuntu/resetmnr/tests/round400-recovery.test.mjs` and `/home/ubuntu/resetmnr/tests/fixtures/round400-offline-guard.mjs` remain in use and were not modified in this extension. `README.md` already had a local 129-line addition before either preparation run; it was not touched. No startup configuration or package script was changed.
-
-## Preparation, not execution
-
-No user WSL journal, lease, or wallet was read or modified. No live gateway/network action, wallet unlock, signing, submission, lock, claim, live worker, or daemon was used. The preparation authorization was not treated as permission to apply abandonment to real data. The user must review the changes and separately execute the local operator action later; a worker start would require another new manual invocation after successful abandonment and safe lease release.
-
-An independent static review found no critical/high issue in the implemented flows under the documented trusted-local-files/cooperating-lease model. Residual same-UID races between filesystem system calls are outside that model; the tool is not an adversarial filesystem lock. A failed cleanup may leave an uncertain lease state and never authorizes automatic retry. No unauthenticated status snapshot is treated as historical proof or finality.
-
-See [the operator guide](ROUND400-RECOVERY.md). The final raw test log is available to the coordinator on this computer at `/tmp/round400-complete-tests.log`.
+No package scripts, scheduler, startup configuration, recovery writer, raw journal parser, lease implementation or exposure policy were changed. The independent read-only review found no critical regression; existing trusted-local-files/cooperating-lease assumptions and same-UID filesystem race limits remain. See [the exact operator conditions](ROUND400-RECOVERY.md#restart-and-parser-guarantees).

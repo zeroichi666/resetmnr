@@ -73,10 +73,17 @@ After fsync, the tool re-reads the entire journal and validates it through the s
 intent claim400
 halt {intentWritten:true}
 abandon_claim {exact validated decision}
+halt {intentWritten:false}    # optional ONE exact legacy marker, immediately here
 ... eligible round401-or-later history
 ```
 
-Every ordinary halt remains sticky. A false/missing halt, unknown record, duplicate abandonment, forged hash, incorrect acknowledgment, altered identity/checkpoint/action, missing raw-prefix metadata, or abandonment for any other target fails closed. An evidence hold cannot be converted by this version.
+The optional legacy marker is recognized automatically by the shared read-only parser, not cleared, deleted, rewritten or converted to success. It must have exactly the keys `type` and `intentWritten`, with boolean `false`, immediately after the already validated abandonment, with no pending intent. No other position, second marker, missing flag, extra field or truthy/string flag is accepted. Later normal future-round history is still validated so that a separately requested manual start can append a claim and remain restartable. The original `halt:true` target and abandonment still require the exact audit, identity, hash/token and forfeiture acknowledgment.
+
+This removes the dashboard journal blocker **only for that legacy sequence and only without an existing lease**. It does not diagnose or fix the original runtime error, establish that an attempted submission did not apply, abandon any new intent, or authorize retry of round 400. No inspection starts a worker, unlocks a wallet, reads the gateway, writes a journal or removes a lease. A fresh dashboard process can offer manual Start; an existing dashboard session in its error phase remains blocked. Closing/reopening the dashboard does not itself start a worker. All current snapshot and exposure checks run again on any separately authorized manual start.
+
+Every other halt remains sticky. New non-action runtime/startup failures include a fixed `failureStage` category and are deliberately **not** eligible for this legacy exception, including a newly detected exposure regression immediately after abandonment. `halt:true`, pending intent (even with a false flag), unknown record, duplicate abandonment, forged hash, incorrect acknowledgment, altered identity/checkpoint/action, missing raw-prefix metadata, or abandonment for any other target fails closed. An evidence hold cannot be converted by this version. Journal write/fsync uncertainty and bad/existing leases remain blocking; post-append recovery still requires exactly the intended durable bytes, even if an unexpected extra marker would otherwise parse.
+
+CLI/dashboard errors now expose only a locally generated allowlisted stage, such as `snapshot-read`, `snapshot-validation`, `snapshot-monotonicity`, `journal-intent`, or `startup-unlock`. A stage is a diagnostic category, not proof of root cause: `snapshot-read` also includes validation inside the signer port. No arbitrary exception text, cause, remote error code, token, password, wallet material or hash is exposed. A legacy halt contains no such diagnosis, so its historical root cause cannot be reconstructed. Post-intent halt records retain their original exact schema for the existing abandonment protocol.
 
 The persistent journal exposes a copy of its validated identity and SHA-256 of the exact byte prefix before each history record. The worker compares the abandonment's hash and token with that independently computed raw-prefix metadata. Later appends maintain these hashes, including across journal reopen.
 

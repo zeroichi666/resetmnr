@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Separate executable: the existing simulator and safe MCP allowlist are unchanged.
 import { setTimeout as pause } from 'node:timers/promises';
+import { liveHaltDiagnosis } from '../lib/worker-live-diagnostics.mjs';
 const args = process.argv.slice(2);
 const usage = 'Live lokal belum dijalankan oleh tes. Setelah persetujuan terpisah: node bin/reset-worker-live.mjs --live --confirm-real-transactions --address <64-hex>\n';
 if (args.length === 1 && args[0] === '--help') {
@@ -26,8 +27,10 @@ if (args.length === 1 && args[0] === '--help') {
       // Poll pacing only; no duration cutoff, scheduling or automatic restart.
       await pause(60000, undefined, { signal: controller.signal });
     }
-  } catch {
+  } catch (error) {
     if (!controller.signal.aborted) {
+      const diagnosis = liveHaltDiagnosis(error);
+      if (diagnosis) process.stderr.write(`Tahap gagal: ${diagnosis}. Kategori lokal, bukan kepastian penyebab.\n`);
       process.stderr.write('Live dihentikan. Rekonsiliasi jurnal/status secara manual; tidak ada retry otomatis.\n');
       process.exitCode = 1;
     }

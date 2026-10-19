@@ -93,7 +93,7 @@ for (const [name, mutate] of Object.entries({
   'pending intent': x => { x.prefix.pop(); x.abandon = null; },
   'hold instead of abandon': x => { x.abandon = { type: 'reconciliation_hold' }; },
   'hold after abandon': x => { x.tail = { type: 'reconciliation_hold' }; },
-  'later halt': x => { x.tail = { type: 'halt', intentWritten: false }; },
+  'later ambiguous halt': x => { x.tail = { type: 'halt', intentWritten: true }; },
   'duplicate abandon': x => { x.tail = x.abandon; },
   'round400 replay': x => { x.tail = x.prefix[3]; },
 })) test(`dashboard fails closed without mutation: ${name}`, t => {
@@ -120,4 +120,32 @@ for (const mode of ['stale-prefix', 'duplicate-key', 'extra-blank-line', 'trunca
   assert.throws(() => state(x));
   assert.equal(observeUnchanged(x, () => dashboardStatus(x)).blocked, true);
   assert.equal(fs.existsSync(x.active), false);
+});
+
+for (const whitespace of [false, true]) test(`dashboard accepts only immediate legacy false after audited abandon, read-only; whitespace=${whitespace}`, t => {
+  const x = fixture(t, { whitespace }); const before = state(x);
+  fs.appendFileSync(x.file, encode([{ type: 'halt', intentWritten: false }]));
+  assert.deepEqual(state(x), before);
+  const result = observeUnchanged(x, () => dashboardStatus(x));
+  assert.equal(result.blocked, false); assert.equal(result.phase, 'idle');
+  assert.equal(fs.existsSync(x.active), false);
+});
+for (const kind of ['directory', 'nonempty-directory', 'file', 'symlink']) test(`legacy compatibility never removes existing ${kind} lease`, t => {
+  const x = fixture(t); fs.appendFileSync(x.file, encode([{ type: 'halt', intentWritten: false }]));
+  if (kind.includes('directory')) fs.mkdirSync(x.active, { mode: 0o700 });
+  if (kind === 'nonempty-directory') fs.writeFileSync(path.join(x.active, 'owner'), 'synthetic');
+  if (kind === 'file') fs.writeFileSync(x.active, 'synthetic');
+  if (kind === 'symlink') fs.symlinkSync('/nonexistent-test-lease', x.active);
+  const inode = fs.lstatSync(x.active).ino;
+  assert.equal(observeUnchanged(x, () => dashboardStatus(x)).blocked, true);
+  assert.equal(fs.lstatSync(x.active).ino, inode);
+});
+for (const [name, tail] of Object.entries({
+  'double false': [{ type: 'halt', intentWritten: false }, { type: 'halt', intentWritten: false }],
+  'new classified failure': [{ type: 'halt', intentWritten: false, failureStage: 'snapshot-validation' }],
+  'false followed by hold': [{ type: 'halt', intentWritten: false }, { type: 'reconciliation_hold' }],
+})) test(`dashboard still fails closed for ${name}`, t => {
+  const x = fixture(t); fs.appendFileSync(x.file, encode(tail));
+  observeUnchanged(x, () => assert.throws(() => inspectDashboardJournal(x.directory, address)));
+  assert.equal(observeUnchanged(x, () => dashboardStatus(x)).blocked, true);
 });

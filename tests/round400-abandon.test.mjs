@@ -147,7 +147,7 @@ test('worker parser requires raw-prefix metadata and compares the hash before th
 test('ordinary later halts, duplicate abandon records, and injected round400 intents remain blocked', t => {
   for (const tail of ['halt', 'duplicate', 'replay']) {
     const x = fixture(t); apply(x); const records = bytes(x).toString().trimEnd().split('\n').map(JSON.parse);
-    records.push(tail === 'halt' ? { type: 'halt', intentWritten: false } : tail === 'duplicate' ? records.at(-1) : x.records[3]);
+    records.push(tail === 'halt' ? { type: 'halt', intentWritten: true } : tail === 'duplicate' ? records.at(-1) : x.records[3]);
     rewrite(x, records); assert.throws(() => state(x));
   }
 });
@@ -282,5 +282,97 @@ test('post-write content tampering fails validation and retains the lease', t =>
     };
     assert.throws(() => append(x, plan.confirmation, ROUND400_FORFEIT_ACK), /Post-append/);
   } finally { fs.fsyncSync = sync; }
-  assert.ok(fs.existsSync(x.active)); assert.throws(() => state(x));
+  assert.ok(fs.existsSync(x.active));
+  // The exact legacy marker is now parseable, but the append's stricter byte
+  // audit rejected the unexpected write and retained the blocking lease.
+  assert.equal(state(x).claimRound, 400);
+  assert.throws(() => openLiveJournal(x.directory, { identity }), /lease/);
+});
+
+// Compatibility for the reported legacy non-action halt, never a generic clear.
+const legacyHalt = { type: 'halt', intentWritten: false };
+function withLegacyHalt(t) {
+  const x = fixture(t); apply(x); fs.appendFileSync(x.journalFile, encode([legacyHalt])); return x;
+}
+test('exact immediate legacy false halt preserves all audited state and bytes on repeated parsing', t => {
+  const x = fixture(t); apply(x); const beforeState = state(x);
+  fs.appendFileSync(x.journalFile, encode([legacyHalt])); const beforeBytes = bytes(x);
+  for (let i = 0; i < 3; i++) assert.deepEqual(state(x), beforeState);
+  assert.deepEqual(bytes(x), beforeBytes); assert.equal(fs.existsSync(x.active), false);
+});
+for (const [name, tail] of Object.entries({
+  'true': [{ type: 'halt', intentWritten: true }],
+  'missing flag': [{ type: 'halt' }],
+  'string flag': [{ type: 'halt', intentWritten: 'false' }],
+  'extra key': [{ ...legacyHalt, ignored: true }],
+  'new classified failure': [{ ...legacyHalt, failureStage: 'snapshot-monotonicity' }],
+  'double false': [legacyHalt, legacyHalt],
+  'false then true': [legacyHalt, { type: 'halt', intentWritten: true }],
+  'false then hold': [legacyHalt, { type: 'reconciliation_hold' }],
+})) test(`post-abandon marker rejects ${name}`, t => {
+  const x = fixture(t); apply(x); fs.appendFileSync(x.journalFile, encode(tail));
+  assert.throws(() => state(x));
+});
+test('legacy false without audited abandon or raw metadata stays blocked', t => {
+  const x = fixture(t); fs.appendFileSync(x.journalFile, encode([legacyHalt])); assert.throws(() => state(x));
+  const y = withLegacyHalt(t), p = parsed(y);
+  assert.throws(() => validateLiveHistory({ history: p.history, address }));
+  p.audit.prefixSha256.pop(); assert.throws(() => validateLiveHistory({ ...p, address }));
+  fs.writeFileSync(y.journalFile, ' ' + bytes(y).toString()); assert.throws(() => state(y));
+});
+test('manual mock starts after legacy marker cannot claim400 or lock again; future history remains parseable', async t => {
+  const x = withLegacyHalt(t), s = syntheticPort();
+  const run = async () => {
+    const journal = openLiveJournal(x.directory, { identity });
+    try { return await new LiveWorker({ address, port: s.port, journal }).step(); }
+    finally { journal.close(); }
+  };
+  assert.deepEqual(s.calls, []); assert.equal((await run()).reason, 'abandoned-round-no-retry');
+  assert.deepEqual(s.calls, []);
+  s.round(401); assert.equal((await run()).kind, 'mine_claim'); assert.equal(state(x).claimRound, 401);
+  s.snapshot.status.claim = null; assert.equal((await run()).reason, 'already-attempted');
+  s.round(402); assert.equal((await run()).kind, 'mine_claim'); assert.equal(state(x).claimRound, 402);
+  const actions = s.calls.filter(c => c[0] === 'prepare').map(c => c[1]);
+  assert.deepEqual(actions.map(a => a.round), [401, 402]);
+  assert.ok(actions.every(a => a.kind === 'mine_claim' && a.args.level === 1000));
+  assert.equal(state(x).lockAttempted, true); assert.equal(state(x).minimumFutureRound, 401);
+});
+for (const mode of ['exposure-regression', 'over-cap', 'invalid-level', 'read-error'])
+  test(`new ${mode} after legacy compatibility still halts and blocks restart`, async t => {
+    const x = withLegacyHalt(t), s = syntheticPort(); s.round(401);
+    if (mode === 'exposure-regression') s.snapshot.status.deposit = '0.05';
+    if (mode === 'over-cap') s.snapshot.status.exits = [{ amount: '0.00000001', release: 972200 }];
+    if (mode === 'invalid-level') s.snapshot.status.claim = { deposit: '0.1', level: 999 };
+    if (mode === 'read-error') s.port.readSnapshot = async () => { throw new Error('DO_NOT_LEAK'); };
+    const journal = openLiveJournal(x.directory, { identity });
+    const worker = new LiveWorker({ address, port: s.port, journal });
+    await assert.rejects(worker.step(), /halted/); assert.equal(worker.stopped, true); journal.close();
+    assert.deepEqual(s.calls, []); assert.throws(() => state(x));
+    assert.equal(bytes(x).toString().includes('DO_NOT_LEAK'), false);
+  });
+test('first new exposure regression immediately after abandon is classified and never waived', async t => {
+  const x = fixture(t); apply(x); const s = syntheticPort(); s.round(401); s.snapshot.status.deposit = '0';
+  const journal = openLiveJournal(x.directory, { identity });
+  const worker = new LiveWorker({ address, port: s.port, journal });
+  await assert.rejects(worker.step(), /halted/); journal.close();
+  assert.throws(() => state(x)); assert.deepEqual(s.calls, []);
+  assert.equal(parsed(x).history.at(-1).failureStage, 'snapshot-monotonicity');
+});
+test('pending intent with misleading false flag and false after future observed action remain blocked', async t => {
+  const x = withLegacyHalt(t), s = syntheticPort(); s.round(401);
+  const journal = openLiveJournal(x.directory, { identity });
+  await new LiveWorker({ address, port: s.port, journal }).step(); journal.close();
+  const good = bytes(x), records = good.toString().trimEnd().split('\n').map(JSON.parse);
+  records.pop(); records.push(legacyHalt); rewrite(x, records); assert.throws(() => state(x));
+  fs.writeFileSync(x.journalFile, good); fs.appendFileSync(x.journalFile, encode([legacyHalt])); assert.throws(() => state(x));
+});
+test('durably written intent followed by append exception cannot become eligible legacy halt', async t => {
+  const x = fixture(t); apply(x); const s = syntheticPort(); s.round(401);
+  const journal = openLiveJournal(x.directory, { identity });
+  const wrapper = { get history() { return journal.history; }, get audit() { return journal.audit; },
+    append(record) { journal.append(record); if (record.type === 'intent') throw new Error('PRIVATE_IO_ERROR'); } };
+  const worker = new LiveWorker({ address, port: s.port, journal: wrapper });
+  await assert.rejects(worker.step(), /halted/); journal.close();
+  assert.deepEqual(s.calls, []); assert.throws(() => state(x));
+  assert.equal(bytes(x).toString().includes('PRIVATE_IO_ERROR'), false);
 });

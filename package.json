@@ -8,6 +8,9 @@
   "scripts": {
     "test": "node --test tests/*.test.mjs",
     "check": "node bin/check-install.mjs",
-    "mcp": "node bin/reset-safe.mjs"
+    "mcp": "node bin/reset-safe.mjs",
+    "worker:simulate": "node bin/reset-worker.mjs --simulate",
+    "test:worker": "node --import ./tests/fixtures/worker-offline-guard.mjs --test tests/worker-policy.test.mjs tests/worker-core.test.mjs && node --test tests/worker-cli.test.mjs",
+    "test:worker-live": "node --import ./tests/fixtures/worker-offline-guard.mjs --test tests/worker-live.test.mjs tests/worker-live-port.test.mjs tests/worker-live-start.test.mjs && node --test tests/worker-live-cli.test.mjs tests/worker-live-journal.test.mjs"
   }
 }

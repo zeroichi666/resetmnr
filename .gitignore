@@ -5,6 +5,7 @@
 !.env.example
 *.log
 *.jsonl
+*.ndjson
 *.key
 *.pem
 *.pfx
@@ -13,6 +14,7 @@
 *mnemonic*
 *wallet-backup*
 .reset-signer/
+.reset-worker/
 .local/
 activity/
 dashboard-history*.json

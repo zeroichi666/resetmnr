@@ -52,3 +52,35 @@ test('CLI rejects noninteractive live / override flags before wallet or RESET ne
     assert.equal(child.status, 1); assert.ok(!child.stderr.includes('OFFLINE_GUARD_VIOLATION'));
   }
 });
+
+test('manual public refresh is protected, lazy and never dispatches worker actions', async t => {
+  const { createPublicStatus } = await import('../lib/worker-dashboard-public-status.mjs');
+  let reads = 0, starts = 0, stops = 0, fail = false;
+  const controller = { status: () => ({ phase: 'idle', address }), start() { starts++; throw new Error('must not start'); }, stop() { stops++; throw new Error('must not stop'); } };
+  const publicStatus = createPublicStatus({ readSnapshot: async () => {
+    reads++; if (fail) throw new Error('SECRET_GATEWAY_DETAIL');
+    return { balance: '0.00000000', deposit: '0.10000000', fair_share_estimate: '0.00000001', mine: { round: 400, window_open: false } };
+  } });
+  const server = createDashboardServer({ controller, publicStatus }); await new Promise(resolve => server.listen(0, '127.0.0.1', resolve)); t.after(() => new Promise(resolve => server.close(resolve)));
+  const port = server.address().port, origin = `http://127.0.0.1:${port}`;
+  const first = await request(port, '/api/status'); const initial = JSON.parse(first.raw);
+  assert.equal(initial.publicStatus.state, 'unchecked'); assert.equal(initial.publicStatus.data, null);
+  const headers = { Origin: origin, 'X-Reset-Token': initial.csrf, 'Content-Type': 'application/json' };
+  assert.equal((await request(port, '/api/refresh')).code, 404);
+  for (const h of [{}, { ...headers, Origin: 'https://evil.test' }, { ...headers, Host: `evil.test:${port}` }, { ...headers, 'Sec-Fetch-Site': 'cross-site' }, { ...headers, 'X-Reset-Token': 'x'.repeat(64) }, { ...headers, 'X-Reset-Token': 'é'.repeat(64) }, { ...headers, 'Content-Type': 'text/plain' }]) {
+    assert.equal((await request(port, '/api/refresh', { method: 'POST', headers: h, body: '{}' })).code, 403);
+  }
+  for (const body of ['{', 'null', '[]', '{"confirm":true}', '{"action":"claim"}']) {
+    assert.equal((await request(port, '/api/refresh', { method: 'POST', headers, body })).code, 400);
+  }
+  assert.equal(reads, 0);
+  const refreshed = await request(port, '/api/refresh', { method: 'POST', headers, body: '{}' });
+  assert.equal(refreshed.code, 200); assert.equal(refreshed.headers['cache-control'], 'no-store');
+  let data = JSON.parse(refreshed.raw); assert.equal(data.phase, 'idle'); assert.equal(data.publicStatus.state, 'ready'); assert.equal(data.publicStatus.data.deposit, '0.10000000'); assert.ok(data.publicStatus.checkedAt);
+  for (let i = 0; i < 3; i++) await request(port, '/api/status');
+  await request(port, '/'); await request(port, '/app.js'); assert.equal(reads, 1);
+  fail = true;
+  data = JSON.parse((await request(port, '/api/refresh', { method: 'POST', headers, body: '{}' })).raw);
+  assert.equal(data.publicStatus.state, 'unavailable'); assert.equal(data.publicStatus.data, null); assert.ok(data.publicStatus.lastSuccessAt); assert.ok(!JSON.stringify(data).includes('SECRET_GATEWAY_DETAIL'));
+  assert.equal(reads, 2); assert.equal(starts, 0); assert.equal(stops, 0);
+});

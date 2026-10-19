@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { createDashboardController } from '../lib/worker-dashboard-controller.mjs';
 import { createDashboardServer } from '../lib/worker-dashboard-server.mjs';
+import { createPublicStatus, createPublicStatusReader } from '../lib/worker-dashboard-public-status.mjs';
 
 const args = process.argv.slice(2);
 const help = 'Dashboard lokal: node bin/reset-dashboard.mjs --address <alamat-64-hex>\nDemo offline: node bin/reset-dashboard.mjs --demo\nBuka http://127.0.0.1:4780. Mulai/berhenti manual; Ctrl+C menutup dashboard dan worker miliknya.\n';
@@ -34,7 +35,11 @@ else if ((!demo && !live) || (live && (!process.stdin.isTTY || !process.stdout.i
   });
   // This module only reads local journal metadata; it never imports the signer.
   const { inspectDashboardJournal: journalReader } = await import('../lib/worker-dashboard-journal.mjs');
-  const server = createDashboardServer({ controller });
+  const publicStatus = createPublicStatus({ source: demo ? 'demo' : 'live',
+    readSnapshot: demo ? async () => ({ balance: '1.00000000', deposit: '0.10000000', fair_share_estimate: '0.00200000',
+      tip: 2400, counted: 2399, mine: { round: 399, start: 2400, claim_end: 2402, end: 2405, window_open: true },
+      exits: [], claim: null }) : createPublicStatusReader({ address }) });
+  const server = createDashboardServer({ controller, publicStatus });
   let shuttingDown = false;
   async function shutdown() {
     if (shuttingDown) return; shuttingDown = true;

@@ -1,6 +1,6 @@
 # Dashboard worker RESET lokal
 
-Dashboard baru menyediakan status proses, pemeriksaan terakhir, aksi terakhir, riwayat aktivitas sesi, dan tombol **Mulai worker / Hentikan worker**. Ini dashboard pengendali worker tersendiri di **http://127.0.0.1:4780**, bukan dashboard read-only signer lama di port 4747.
+Dashboard menyediakan status proses, pemeriksaan terakhir, aksi terakhir, riwayat aktivitas sesi, status publik read-only, dan tombol **Mulai worker / Hentikan worker**. Ini dashboard pengendali worker tersendiri di **http://127.0.0.1:4780**, bukan dashboard read-only signer lama di port 4747.
 
 ## Menjalankan di Windows 11 + WSL2
 
@@ -22,9 +22,17 @@ Ganti placeholder dengan alamat publik wallet yang memang sudah disetujui. Buka 
 
 Mulai lagi setelah stop bersih membutuhkan **klik dan input password terminal baru**. Worker tidak otomatis dimulai ketika halaman dibuka/di-refresh, tidak dijadwalkan, dan tidak auto-restart setelah error, sleep, reboot, atau terminal ditutup. Menutup tab browser **tidak menghentikan** foreground worker; gunakan tombol Hentikan atau Ctrl+C di terminal. Ctrl+C menutup dashboard dan worker yang dimilikinya. Penutupan paksa/crash bisa meninggalkan lease dan memerlukan pemeriksaan manual.
 
+## Status publik read-only
+
+Kartu status publik menampilkan balance, deposit, estimasi fair-share, Mine (round/window), tip, counted exits, dan claim. Pembaca tidak perlu password dan tidak memperoleh akses ke wallet, key, jurnal, signing, start, atau stop. Mode DEMO memakai data sintetis dan tidak menghubungi gateway.
+
+Tombol **Refresh status** saja yang meminta snapshot jaringan terbaru. Browser mengirim `POST /api/refresh` dengan JSON `{}`, token sesi, dan `Origin` yang dilindungi. `GET /api/status` hanya mengembalikan status lokal/cache. Refresh gateway berurutan dan tetap: `GET https://reset.openmayhem.ai/v1/state`, lalu `GET /v1/account/<alamat publik>`, lalu `GET /v1/state`; total timeout 5 detik, respons maksimum 256 KiB, tanpa redirect dan tanpa retry. State dan account divalidasi konsisten. Kegagalan, timeout, atau inkonsistensi menghasilkan **unavailable** tanpa angka stale; timestamp attempt dan last success tetap dibedakan. Tidak ada refresh otomatis.
+
+Status response lengkap masih dapat membawa metadata jurnal read-only lama yang dikumpulkan server lokal. Karena itu jangan mengklaim bahwa seluruh response HTTP refresh tidak menyentuh jurnal; yang benar, pembaca publik tidak mendapat akses untuk membaca atau mengubah jurnal, dan refresh tidak menulisnya.
+
 ## Apa yang ditampilkan
 
-Status berjalan berarti loop worker milik dashboard aktif, **bukan** bukti jaringan sehat atau keuntungan. Pemeriksaan terakhir adalah waktu langkah worker terakhir selesai, bukan pembaruan jaringan real-time; polling worker tetap 60 detik. Browser mengambil status lokal setiap 2 detik tanpa menambah request RESET. Koneksi browser putus berarti status tidak diketahui, bukan worker pasti berhenti.
+Status berjalan berarti loop worker milik dashboard aktif, **bukan** bukti jaringan sehat atau keuntungan. Pemeriksaan terakhir adalah waktu langkah worker terakhir selesai, bukan pembaruan jaringan real-time; polling worker tetap 60 detik. Saat load, browser mengambil `GET /api/status` sekali; setelah start/stop ia mengambil status lokal lagi. Tidak ada polling atau auto-refresh. Koneksi browser putus berarti status tidak diketahui, bukan worker pasti berhenti.
 
 Metadata jurnal hanya dibaca, tidak diubah atau dihapus. Exposure/ronde yang ditampilkan dari jurnal adalah **observasi historis terakhir**, bukan saldo atau state jaringan terkini. `0.1 RESET` pada panel batas adalah kebijakan cap, bukan klaim saldo saat ini. Aksi teramati bukan settlement/finalitas. Jika lease ada tetapi bukan milik dashboard, tombol Mulai diblokir. Lease tidak membuktikan proses masih hidup; bisa sisa crash. Dashboard tidak punya tombol membunuh/mengambil alih worker CLI lain, recovery, reset jurnal, transfer, unlock, atau withdraw.
 

@@ -119,6 +119,14 @@ Daftar tool yang diizinkan harus **tepat `rules`, `status`, `address`, `post_hea
 
 `status` dapat menghubungi gateway untuk membaca state. `post_headers` memang diizinkan wrapper tetapi **bukan read-only** karena mengirim header Bitcoin; tidak perlu dipanggil untuk cek alamat/status. Wrapper ini tidak menyediakan tool lock/claim dan allowlist-nya jangan diperluas demi menjalankan worker.
 
+### Status publik read-only
+
+Dashboard juga menampilkan snapshot status publik tanpa meminta password dan tanpa mengakses wallet/key untuk pembaca. Snapshot mencakup balance, deposit, estimasi fair-share, Mine (round/window), tip, counted exits, dan claim. Mode demo memakai data sintetis dan tidak menghubungi gateway.
+
+Saat halaman dimuat, browser hanya memanggil `GET /api/status` sekali untuk status lokal/cache; endpoint ini tidak mengambil state gateway. Status terbaru hanya diminta ketika pembaca menekan **Refresh status**: browser mengirim `POST /api/refresh` dengan JSON `{}` dan token sesi serta `Origin` yang dilindungi. Refresh itu melakukan urutan tetap `GET https://reset.openmayhem.ai/v1/state`, `GET /v1/account/<alamat publik>`, lalu `GET /v1/state`, dengan batas waktu total 5 detik, respons maksimum 256 KiB, tanpa redirect atau retry. State dan account harus konsisten; jika gateway gagal, timeout, atau data tidak konsisten, status menjadi **unavailable** dan angka stale tidak ditampilkan. UI mencatat timestamp percobaan dan timestamp sukses terakhir. Start/stop juga mengambil status lokal setelah aksinya; tidak ada auto-refresh/polling.
+
+Pembaca publik tidak mendapat akses ke wallet, key, jurnal, signing, start, atau stop dan refresh tidak memerlukan password. Namun response status lengkap dashboard tetap dapat menyertakan metadata jurnal lama secara read-only yang dibaca server lokal; jangan menafsirkan ini sebagai akses publik ke isi jurnal atau klaim bahwa seluruh response HTTP tidak menyentuh metadata jurnal.
+
 ### 4. Jalankan dashboard lokal, tanpa otomatis menjalankan worker
 
 Untuk mencoba tampilan paling aman, tanpa wallet, jurnal pengguna, gateway, atau transaksi:
@@ -137,13 +145,13 @@ cd ~/src/resetmnr
 npm run dashboard:worker -- --address ALAMAT_RESET_64_HEX_YANG_DISETUJUI
 ```
 
-Ganti placeholder dengan alamat publik yang sudah diverifikasi. Tetap buka **http://127.0.0.1:4780**. Membuka/refresh halaman tidak membuka wallet atau memulai worker. Dashboard dapat membaca metadata jurnal lokal; exposure/ronde historisnya bukan saldo terkini. Label cap 0.1 bukan laporan jumlah saldo. Jangan mengubah bind loopback, membuka firewall/LAN, atau menambah tunnel publik; localhost bukan perlindungan terhadap komputer/browser yang sudah terkompromi.
+Ganti placeholder dengan alamat publik yang sudah diverifikasi. Tetap buka **http://127.0.0.1:4780**. Membuka/refresh halaman tidak membuka wallet atau memulai worker. Saat load, browser hanya mengambil status lokal/cache sekali; tidak ada polling otomatis. Dashboard dapat membaca metadata jurnal lokal; exposure/ronde historisnya bukan saldo terkini. Label cap 0.1 bukan laporan jumlah saldo. Jangan mengubah bind loopback, membuka firewall/LAN, atau menambah tunnel publik; localhost bukan perlindungan terhadap komputer/browser yang sudah terkompromi.
 
 **Jangan klik Mulai worker hanya untuk melihat dashboard atau menguji koneksi.** Tombol itu menjalankan operasi live: perlu persetujuan eksplisit maksimum deposit + exits 0.1 RESET/claim level 1000 dan password tersembunyi di terminal WSL. Password tidak dimasukkan lewat browser/HTTP. Bila worker CLI lama masih berjalan, hentikan di terminal asal dengan Ctrl+C dan tunggu selesai; dashboard tidak dapat mengambil alih atau menghentikan worker CLI lain. Jangan memulai dua worker untuk wallet yang sama.
 
 Tombol **Hentikan worker** meminta stop/abort worker milik dashboard; tunggu status berhenti. **Ctrl+C di terminal dashboard** menghentikan dashboard dan worker miliknya. Menutup tab browser tidak menghentikan worker; browser terputus berarti status tidak diketahui. Stop tidak melepas dana terkunci, tidak membatalkan transaksi yang sudah terkirim, dan dapat meninggalkan intent ambigu yang perlu pemeriksaan manual. Tidak ada auto-start, auto-restart, jadwal, atau daemon. Restart bersih memerlukan klik dan input password baru; jangan menghapus jurnal/lease untuk melewati error.
 
-Dashboard signer lama di **http://127.0.0.1:4747** adalah panel read-only terpisah, bukan panel kontrol worker 4780; ia tetap dapat menghubungi gateway untuk membaca state. Rincian pengaman HTTP, status historis, dan stop ada di [panduan dashboard](docs/DASHBOARD.md); mekanisme jurnal/restart ada di [panduan worker](docs/WORKER.md). Bagian validasi lama di bawah mencatat tahap implementasi masing-masing, bukan pernyataan saldo/status wallet Anda saat ini.
+Dashboard signer lama di **http://127.0.0.1:4747** adalah panel read-only terpisah, bukan panel kontrol worker 4780; ia tetap dapat menghubungi gateway untuk membaca state. Rincian status publik, pengaman HTTP, status historis, dan stop ada di [panduan dashboard](docs/DASHBOARD.md); mekanisme jurnal/restart ada di [panduan worker](docs/WORKER.md). Bagian validasi lama di bawah mencatat tahap implementasi masing-masing, bukan pernyataan saldo/status wallet Anda saat ini.
 
 ## Windows 11 setup
 

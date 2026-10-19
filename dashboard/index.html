@@ -16,7 +16,7 @@
 
     <div id="liveRegion" class="sr-only" aria-live="polite" aria-atomic="true"></div>
     <section id="offlineBanner" class="banner banner-danger" aria-hidden="true">
-      <span class="banner-icon">!</span><div><strong>Koneksi status terputus</strong><p>Status worker tidak diketahui dan worker mungkin masih berjalan. Kontrol browser dinonaktifkan; gunakan terminal WSL untuk memeriksa atau Ctrl+C untuk berhenti.</p></div>
+      <span class="banner-icon">!</span><div><strong>Koneksi status terputus</strong><p>Status worker tidak diketahui dan worker mungkin masih berjalan. Refresh manual tetap dapat dicoba saat server kembali; snapshot lama ditandai dengan waktu terakhir berhasil.</p></div>
     </section>
     <section id="blockBanner" class="banner banner-danger" hidden><div><strong>Mulai diblokir · periksa manual</strong><p id="blockReason"></p></div></section>
     <section id="modeBanner" class="banner" hidden><div><strong>DEMO OFFLINE · data sintetis</strong><p>Tombol hanya mengendalikan worker dummy. Tidak ada wallet atau transaksi nyata; ronde bukan data jaringan.</p></div></section>
@@ -41,6 +41,14 @@
       </article>
     </section>
 
+    <section class="card public-card" aria-labelledby="publicStatusTitle">
+      <div class="card-head"><div><p class="eyebrow">STATUS PUBLIK · READ-ONLY</p><h2 id="publicStatusTitle">Snapshot deposit & ronde</h2></div><span id="publicStatePill" class="pill neutral">BELUM DIPERIKSA</span></div>
+      <div class="public-toolbar"><p id="publicStatusMessage" class="helper">Belum ada pemeriksaan. Data hanya dibaca dari endpoint publik.</p><button id="refreshBtn" class="btn btn-secondary" type="button">Refresh status ↻</button></div>
+      <div class="public-meta"><div><span>Balance</span><strong id="publicBalance">—</strong></div><div><span>Deposit</span><strong id="publicDeposit">—</strong></div><div><span>Fair share estimate</span><strong id="publicFairShare">—</strong></div><div><span>Tip / counted</span><strong id="publicTip">—</strong></div><div><span>Mine · ronde</span><strong id="publicRound">—</strong></div><div><span>Mine · fase window</span><strong id="publicWindow">—</strong></div><div><span>Mine · batas blok</span><strong id="publicTimes">—</strong></div><div><span>Exits</span><strong id="publicExits">—</strong></div></div>
+      <div class="public-claim"><span>Claim</span><strong id="publicClaim">—</strong></div>
+      <p class="stale-note"><span>i</span><span>Fair share adalah <strong>estimasi</strong>, bukan janji atau finalitas. Terakhir berhasil: <strong id="publicLastSuccess">—</strong>. Percobaan terakhir: <strong id="publicCheckedAt">—</strong>.</span></p>
+    </section>
+
     <section class="grid control-grid" aria-label="Kontrol worker">
       <article class="card control-card">
         <div class="card-head"><div><p class="eyebrow">KONTROL SESI</p><h2>Mulai atau hentikan</h2></div><span class="terminal-badge">TERMINAL</span></div>
@@ -59,7 +67,7 @@
     <section class="card events-card" aria-labelledby="eventsTitle"><div class="card-head"><div><p class="eyebrow">LOG RINGKAS</p><h2 id="eventsTitle">Peristiwa worker</h2></div><span id="lastChecked">Terakhir diperiksa —</span></div><ol id="eventsList" class="events-list"><li class="empty-event">Menunggu status pertama…</li></ol></section>
 
     <section class="notice-grid"><article class="notice"><span class="notice-icon">↯</span><div><strong>Server memblokir start?</strong><p>Worker CLI yang sudah berjalan di laptop tidak dapat diadopsi atau dihentikan dari sini. Hentikan worker lama dengan <code>Ctrl+C</code> di terminal; jangan hapus jurnal.</p></div></article><article class="notice subtle"><span class="notice-icon">◉</span><div><strong>Aplikasi teramati, bukan settlement</strong><p>Status aplikasi bukan bukti finalitas transaksi atau saldo on-chain.</p></div></article></section>
-    <footer><span>RESET MNR · sesi lokal</span><span>Polling otomatis setiap 2 detik · tidak ada auto-restart</span></footer>
+    <footer><span>RESET MNR · sesi lokal</span><span>Refresh status manual · snapshot dapat stale saat offline</span></footer>
   </main>
   <script src="app.js" defer></script>
 </body>

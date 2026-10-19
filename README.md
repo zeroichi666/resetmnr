@@ -16,6 +16,135 @@ The wrapper's 25 offline tests passed on Ubuntu 24.04 x86-64 with Node.js 24. Th
 
 Official dependency: [`6132e8653d6342f36673eb7426ec8e064960e48e`](https://github.com/Trac-Systems/reset/tree/6132e8653d6342f36673eb7426ec8e064960e48e). See [UPSTREAM.json](UPSTREAM.json), the [official README](https://github.com/Trac-Systems/reset/blob/6132e8653d6342f36673eb7426ec8e064960e48e/README.md), [agent rules](https://github.com/Trac-Systems/reset/blob/6132e8653d6342f36673eb7426ec8e064960e48e/docs/llms.txt), and [signer guide](https://github.com/Trac-Systems/reset/blob/6132e8653d6342f36673eb7426ec8e064960e48e/signer/README.md). The root README requires Node 24 or newer, which is stricter than the signer's older documentation; use 24+.
 
+## Panduan cepat WSL: alamat, Hermes, dan dashboard
+
+Jalankan petunjuk ini **di terminal WSL2 pada laptop yang menyimpan wallet existing**, bukan di PowerShell dengan Node Windows, bukan di Sandbox/cloud, dan bukan di `/mnt/c`. Contoh checkout laptop: `~/src/resetmnr`; ganti jika lokasi Anda berbeda. Node.js 24+ diperlukan untuk proyek ini. Jangan membuat wallet baru, memindahkan keystore, mengganti HOME/distribusi WSL, atau menghapus jurnal untuk mencoba ulang. Alamat, password, dan data wallet pribadi tidak dicantumkan di README ini.
+
+### Apakah menjalankan worker lagi mengunci menjadi 0.2 RESET?
+
+**Tidak menurut kebijakan worker ini: batas totalnya `deposit + seluruh exits = maksimum 0.1 RESET`, bukan tambahan 0.1 setiap kali start.** Implementasi sebenarnya ada di [`lib/worker-policy.mjs`](lib/worker-policy.mjs):
+
+| Status yang tervalidasi | Perilaku kebijakan |
+| --- | --- |
+| Deposit tepat 0.1 RESET, exits nol | Tidak lock lagi. Bisa claim **level 1000 saja** jika jendela terbuka, belum claim, serta moves dan kapasitas tersedia. |
+| Deposit parsial, ada exits, atau deposit + exits tepat 0.1 tetapi deposit bukan 0.1 | Tidak top-up dan tidak lock ulang; menunggu. Exits yang sudah matang tetapi belum ditarik tetap dihitung. |
+| Deposit nol, exits nol, saldo tersedia minimal 0.1 | Kebijakan dapat meminta lock **tepat 0.1**, tetap tunduk pada pemeriksaan runtime dan histori jurnal. |
+| Deposit + exits lebih dari 0.1, status tidak valid, atau hasil transaksi ambigu | Menolak/berhenti; bukan menambah lock atau otomatis mencoba ulang. |
+
+Saldo tersedia yang lebih besar tidak membuat worker mengunci seluruh saldo. Claim bukan perintah tambahan deposit. Restart tidak menghapus cap, deduplikasi, atau histori; simpan `~/.reset-worker/journal.ndjson` dan lease-nya. Cap ini berlaku untuk worker yang direview, bukan jaminan terhadap program lain yang memakai wallet, perubahan eksternal, atau gateway yang tidak jujur.
+
+**Jangan start ulang hanya berdasarkan log lama.** Pesan sebelumnya `LIVE lock ronde=399: aplikasi terlihat, bukan settlement/finalitas.` adalah observasi historis, bukan bukti saldo/state terkini atau finalitas. Sebelum mempertimbangkan start baru, cek `status` melalui `reset-safe` di Hermes pada wallet yang sama: saldo tersedia, deposit, seluruh exits, ronde/window, dan claim. Jika data tidak tersedia/konsisten, atau ada intent/halt/lease yang belum jelas, berhenti untuk pemeriksaan manual; jangan hapus jurnal atau kirim ulang. Pembaruan dokumentasi ini tidak menjalankan worker, membuka wallet, menghubungi gateway, atau melakukan transaksi.
+
+### 1. Cek alamat publik tanpa unlock atau jaringan
+
+Di **WSL yang sama dengan wallet existing**, perintah Python 3 berikut hanya membaca field alamat publik dari keystore terenkripsi lokal. Tidak meminta password, tidak mendekripsi, tidak membuat wallet, tidak melakukan signing, dan tidak menghubungi RESET. Jangan menggantinya dengan `cat` seluruh keystore atau menyalin isinya ke chat.
+
+```bash
+cd ~/src/resetmnr
+python3 - <<'PY'
+import json, os, re, stat
+from pathlib import Path
+
+directory = Path.home() / '.reset-signer'
+d = directory.lstat()
+if not stat.S_ISDIR(d.st_mode) or d.st_mode & 0o077:
+    raise SystemExit('Direktori wallet harus private dan bukan symlink; hentikan.')
+fd = os.open(directory / 'keystore.json', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+with os.fdopen(fd, 'r') as f:
+    s = os.fstat(f.fileno())
+    if not stat.S_ISREG(s.st_mode) or s.st_mode & 0o077 or s.st_size > 16384:
+        raise SystemExit('Keystore tidak sesuai pemeriksaan keamanan; hentikan.')
+    address = json.load(f).get('address')
+if not isinstance(address, str) or not re.fullmatch(r'[0-9a-f]{64}', address):
+    raise SystemExit('Format alamat tidak valid; hentikan.')
+print(address)
+PY
+```
+
+Hasilnya adalah alamat **RESET 64 karakter hex**, bukan alamat `trac1` untuk biaya TNK. Ini hanya metadata publik lokal, belum membuktikan kepemilikan key atau saldo jaringan; cocokkan dengan hasil tool `address` pada sesi bridge yang benar. Jika file tidak ada/izin ditolak, pastikan distro, user, dan lokasi wallet benar; jangan menjalankan init/import atau melonggarkan izin sebagai jalan pintas. Subperintah upstream `reset-signer address` berbeda: implementasinya melakukan unlock, sehingga bukan cara tanpa-unlock yang digunakan di atas.
+
+### 2. Hubungkan `reset-safe` ke Hermes Desktop Windows
+
+Setup laptop ini memakai **Hermes Desktop di Windows** yang meluncurkan bridge stdio melalui `wsl.exe -d Ubuntu`. Node.js Linux dan checkout berada di dalam WSL; ini bukan server HTTP dan bukan worker. Jika `hermes mcp test reset-safe` sebelumnya berhasil, pertahankan konfigurasi itu dan jangan menimpa server lain. Jangan pakai `vendor/upstream/signer/bin/reset-signer.mjs mcp`; itu bukan wrapper terbatas ini.
+
+Konfigurasi Hermes Windows berada di `%LOCALAPPDATA%\hermes\config.yaml`. Jika perlu membuat entri baru, gabungkan ke blok `mcp_servers` yang sudah ada. Contoh ini memakai path laptop yang pernah dipakai; sesuaikan path Node dan checkout dengan hasil `command -v node` dan lokasi repo di WSL:
+
+```yaml
+mcp_servers:
+  reset-safe:
+    command: wsl.exe
+    args:
+      - -d
+      - Ubuntu
+      - --exec
+      - /home/irfan/.nvm/versions/node/v26.12.0/bin/node
+      - /home/irfan/src/resetmnr/bin/reset-safe.mjs
+    env:
+      RESET_SIGNER_PASSWORD: "${RESET_SIGNER_PASSWORD}"
+      WSLENV: "RESET_SIGNER_PASSWORD"
+    enabled: true
+    tools:
+      include: [rules, status, address, post_headers]
+```
+
+Gunakan path absolut Linux di dalam WSL, indentasi YAML seperti contoh, dan jangan menyimpan password literal. Wrapper membutuhkan password lokal untuk membuka wallet bagi tool yang diminta; koneksi MCP sendiri **tidak menjalankan lock atau claim**. Saat perlu mengetes atau membuka Hermes, tutup Desktop yang sedang berjalan dahulu lalu jalankan dari PowerShell berikut. Password diketik pada prompt tersembunyi, tidak dimasukkan ke chat atau file konfigurasi:
+
+```powershell
+$s=Read-Host 'Password wallet RESET' -AsSecureString
+$p=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($s)
+$old=$env:WSLENV
+try {
+  $env:RESET_SIGNER_PASSWORD=[Runtime.InteropServices.Marshal]::PtrToStringBSTR($p)
+  $names=@($old -split ':' | Where-Object {$_ -and $_ -ne 'RESET_SIGNER_PASSWORD'})
+  $env:WSLENV=(@($names + 'RESET_SIGNER_PASSWORD') -join ':')
+  hermes mcp test reset-safe
+  if ($LASTEXITCODE -eq 0) { hermes desktop }
+} finally {
+  Remove-Item Env:RESET_SIGNER_PASSWORD -ErrorAction SilentlyContinue
+  if ($null -eq $old) { Remove-Item Env:WSLENV -ErrorAction SilentlyContinue } else { $env:WSLENV=$old }
+  [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($p)
+  $s.Dispose()
+}
+```
+
+Tes yang berhasil menampilkan **Connected** dan tepat **4 tools discovered**. Tutup Desktop untuk mengakhiri sesi; setelah proses PowerShell selesai, nilai environment sementara dibersihkan. Jangan membuat password permanen di Windows environment, YAML, argumen, chat, atau Git.
+
+### 3. Uji koneksi dan cek status di Hermes
+
+Di chat Hermes, minta pemanggilan tool dari server **`reset-safe`** secara eksplisit, bukan jawaban dari ingatan model. Contoh:
+
+> Gunakan server MCP reset-safe. Panggil rules, address, dan status. Tampilkan hasil mentah dari setiap tool. Jangan menjalankan worker, shell, lock, claim, transfer, unlock, withdraw, atau post_headers.
+
+Daftar tool yang diizinkan harus **tepat `rules`, `status`, `address`, `post_headers`**. Periksa kartu/hasil tool mentah: `address` mengeluarkan alamat publik RESET 64-hex dan alamat `trac1`; `status` membaca status live termasuk saldo, deposit, exits, ronde/window, dan claim. Cocokkan alamat secara lokal—jangan tempel alamat lengkap ke chat. Teks jawaban model saja tidak membuktikan tool terpanggil; jika model menampilkan alamat `0x…`, mengubah hasil, atau tool call tidak terlihat, jangan gunakan hasil itu untuk worker. Jika koneksi gagal atau alamat berbeda, jangan lanjut ke worker; periksa distro, path, Node, pin, dan pewarisan password.
+
+`status` dapat menghubungi gateway untuk membaca state. `post_headers` memang diizinkan wrapper tetapi **bukan read-only** karena mengirim header Bitcoin; tidak perlu dipanggil untuk cek alamat/status. Wrapper ini tidak menyediakan tool lock/claim dan allowlist-nya jangan diperluas demi menjalankan worker.
+
+### 4. Jalankan dashboard lokal, tanpa otomatis menjalankan worker
+
+Untuk mencoba tampilan paling aman, tanpa wallet, jurnal pengguna, gateway, atau transaksi:
+
+```bash
+cd ~/src/resetmnr
+npm run dashboard:demo
+```
+
+Buka **http://127.0.0.1:4780** di browser Windows jika forwarding localhost WSL tersedia. Semua data dan tombol mode DEMO bersifat sintetis; ronde demo bukan status jaringan. Stop dengan **Ctrl+C** sebelum memakai port yang sama untuk dashboard non-demo.
+
+Untuk membuka panel worker existing **saja**, setelah alamat cocok dan status terkini diperiksa, dari terminal WSL interaktif:
+
+```bash
+cd ~/src/resetmnr
+npm run dashboard:worker -- --address ALAMAT_RESET_64_HEX_YANG_DISETUJUI
+```
+
+Ganti placeholder dengan alamat publik yang sudah diverifikasi. Tetap buka **http://127.0.0.1:4780**. Membuka/refresh halaman tidak membuka wallet atau memulai worker. Dashboard dapat membaca metadata jurnal lokal; exposure/ronde historisnya bukan saldo terkini. Label cap 0.1 bukan laporan jumlah saldo. Jangan mengubah bind loopback, membuka firewall/LAN, atau menambah tunnel publik; localhost bukan perlindungan terhadap komputer/browser yang sudah terkompromi.
+
+**Jangan klik Mulai worker hanya untuk melihat dashboard atau menguji koneksi.** Tombol itu menjalankan operasi live: perlu persetujuan eksplisit maksimum deposit + exits 0.1 RESET/claim level 1000 dan password tersembunyi di terminal WSL. Password tidak dimasukkan lewat browser/HTTP. Bila worker CLI lama masih berjalan, hentikan di terminal asal dengan Ctrl+C dan tunggu selesai; dashboard tidak dapat mengambil alih atau menghentikan worker CLI lain. Jangan memulai dua worker untuk wallet yang sama.
+
+Tombol **Hentikan worker** meminta stop/abort worker milik dashboard; tunggu status berhenti. **Ctrl+C di terminal dashboard** menghentikan dashboard dan worker miliknya. Menutup tab browser tidak menghentikan worker; browser terputus berarti status tidak diketahui. Stop tidak melepas dana terkunci, tidak membatalkan transaksi yang sudah terkirim, dan dapat meninggalkan intent ambigu yang perlu pemeriksaan manual. Tidak ada auto-start, auto-restart, jadwal, atau daemon. Restart bersih memerlukan klik dan input password baru; jangan menghapus jurnal/lease untuk melewati error.
+
+Dashboard signer lama di **http://127.0.0.1:4747** adalah panel read-only terpisah, bukan panel kontrol worker 4780; ia tetap dapat menghubungi gateway untuk membaca state. Rincian pengaman HTTP, status historis, dan stop ada di [panduan dashboard](docs/DASHBOARD.md); mekanisme jurnal/restart ada di [panduan worker](docs/WORKER.md). Bagian validasi lama di bawah mencatat tahap implementasi masing-masing, bukan pernyataan saldo/status wallet Anda saat ini.
+
 ## Windows 11 setup
 
 Prerequisites: a user-owned **WSL2 Linux distribution**, Git and Node.js 24+ with npm **inside that distribution**, and a clean Git checkout of this repository plus Git for Windows on Windows. WSL installation can require administrator rights and a restart, so the scripts do not silently enable Windows features, install distributions, change security settings or install missing prerequisites. Use [Microsoft's WSL guidance](https://learn.microsoft.com/windows/wsl/install), [official Git](https://git-scm.com/downloads) and [Node.js](https://nodejs.org/) sources. No GPU is required.

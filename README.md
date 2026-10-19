@@ -80,6 +80,10 @@ Verify by actually calling `rules {}`, `status {}`, and `address {}`. The tool l
 
 ## Dashboard and tests
 
+**New: local worker control dashboard** — status, last action, historical journal metadata, explicit Start/Stop buttons, and offline demo at **http://127.0.0.1:4780**. Run `npm run dashboard:worker -- --address YOUR_APPROVED_64_HEX_ADDRESS` from your WSL checkout, or `npm run dashboard:demo` without a wallet. Opening the page never starts the worker; live Start requires confirmation plus a hidden password prompt in the foreground terminal. Stop does not unlock funds or reverse submitted transactions. Stop any existing CLI worker with Ctrl+C first; this dashboard cannot adopt it. See [the WSL dashboard guide](docs/DASHBOARD.md). No live worker was started during implementation or tests.
+
+The original **read-only signer dashboard** below remains separate and unchanged:
+
 ```powershell
 .\scripts\start-dashboard.ps1 -Distro Ubuntu
 ```
@@ -97,7 +101,7 @@ Tests use fake credentials and synthetic MCP fixtures only, with no wallet acces
 
 ## Participation and stopping
 
-An **offline manual foreground simulator** and a **separate local live adapter** are available. The adapter has only been tested with offline mocks/synthetic data; it has not opened a real wallet, signed or submitted a real transaction, or connected to live RESET during this extension. It requires a separate explicit live-run approval, interactive terminal, expected address and acknowledgment flags. MCP and dashboard processes alone do not participate. There is no schedule or model API integration.
+An **offline manual foreground simulator** and a **separate local live adapter** are available. The adapter has only been tested here with offline mocks/synthetic data; it has not opened a real wallet, signed or submitted a real transaction, or connected to live RESET during this extension. Live use requires the approved wallet/machine, interactive terminal, expected address and explicit confirmation. MCP and the original read-only dashboard do not participate. The new worker dashboard can manually start the same bounded runtime only after confirmation and terminal password input. There is no schedule or model API integration.
 
 Run `npm run worker:simulate` manually and stop with Ctrl+C. This unchanged in-memory simulation uses no wallet, credentials, signer, gateway, network or AI. It runs without a duration cutoff, scheduler, auto-start or auto-restart; its one-second pause only paces simulated blocks. The simulator still refuses all live, wallet, gateway and duration flags. The live executable is separate (`bin/reset-worker-live.mjs`) and is not started by installation, MCP or tests. Run `npm run test:worker-live` for offline adapter tests. See [the worker guide](docs/WORKER.md) for the exact command after authorization, journal/recovery limits and the remaining approval gate.
 

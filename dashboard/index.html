@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#071a2d">
+  <title>RESET MNR · Worker lokal</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <a class="brand" href="#main" aria-label="RESET MNR beranda"><span class="brand-mark">R</span><span><strong>RESET MNR</strong><small>LOCAL WORKER CONSOLE</small></span></a>
+      <div id="connection" class="connection offline" role="status"><span class="dot"></span><span id="connectionText">Offline</span></div>
+    </header>
+
+    <div id="liveRegion" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+    <section id="offlineBanner" class="banner banner-danger" aria-hidden="true">
+      <span class="banner-icon">!</span><div><strong>Koneksi status terputus</strong><p>Status worker tidak diketahui dan worker mungkin masih berjalan. Kontrol browser dinonaktifkan; gunakan terminal WSL untuk memeriksa atau Ctrl+C untuk berhenti.</p></div>
+    </section>
+    <section id="blockBanner" class="banner banner-danger" hidden><div><strong>Mulai diblokir · periksa manual</strong><p id="blockReason"></p></div></section>
+    <section id="modeBanner" class="banner" hidden><div><strong>DEMO OFFLINE · data sintetis</strong><p>Tombol hanya mengendalikan worker dummy. Tidak ada wallet atau transaksi nyata; ronde bukan data jaringan.</p></div></section>
+
+    <section class="hero" id="main">
+      <div><p class="eyebrow">PANEL OPERASIONAL</p><h1>RESET worker,<br><em>terlihat jelas.</em></h1><p class="lede">Jalankan worker lokal dengan kontrol eksplisit, jejak jurnal yang terbaca, dan batas kebijakan yang selalu terlihat.</p></div>
+      <div class="hero-note"><span class="note-kicker">MODE PENGAWASAN</span><strong>Manual foreground</strong><span>Worker hanya berjalan selama sesi terminal aktif.</span></div>
+    </section>
+
+    <section class="grid status-grid" aria-label="Status worker">
+      <article class="card status-card">
+        <div class="card-head"><div><p class="eyebrow">STATUS SAAT INI</p><h2 id="phaseLabel">Tidak diketahui</h2></div><span id="phasePill" class="pill neutral">OFFLINE</span></div>
+        <div class="status-meta"><div><span>Alamat</span><strong id="address">—</strong></div><div><span>Mode</span><strong id="mode">—</strong></div><div><span>Dimulai</span><strong id="startedAt">—</strong></div></div>
+        <p id="lastAction" class="helper">Belum ada langkah worker</p>
+        <div id="actionFeedback" class="feedback" hidden></div>
+      </article>
+      <article class="card policy-card">
+        <div class="card-head"><div><p class="eyebrow">KEBIJAKAN OPERASI</p><h2>Batas tetap</h2></div><span class="lock">LOCKED</span></div>
+        <div class="policy-limit"><strong>0.1 RESET</strong><span>maks. deposit + exits</span></div>
+        <div class="policy-row"><span>Claim</span><strong>1.000</strong></div><div class="policy-row"><span>Eksekusi</span><strong>Manual foreground</strong></div>
+        <p class="muted small">Ini adalah batas kebijakan, bukan exposure aktual.</p>
+      </article>
+    </section>
+
+    <section class="grid control-grid" aria-label="Kontrol worker">
+      <article class="card control-card">
+        <div class="card-head"><div><p class="eyebrow">KONTROL SESI</p><h2>Mulai atau hentikan</h2></div><span class="terminal-badge">TERMINAL</span></div>
+        <div class="confirm-box"><label class="check-row"><input id="confirmCheck" type="checkbox"><span class="check-ui" aria-hidden="true"></span><span>Saya meminta mulai manual. Dalam mode LIVE ini dapat membuat transaksi nyata: maksimum deposit + exits <strong>0.1 RESET</strong>, claim hanya level <strong>1.000</strong>, dan berjalan manual di foreground. Mode DEMO tidak membuat transaksi.</span></label></div>
+        <div class="actions"><button id="startBtn" class="btn btn-primary" type="button" disabled>Mulai worker <span>↗</span></button><button id="stopBtn" class="btn btn-secondary" type="button" disabled>Hentikan worker <span>■</span></button></div>
+        <p id="terminalHint" class="helper">Password wallet tidak diminta di halaman ini. Setelah menekan Mulai, masukkan password di terminal WSL.</p>
+      </article>
+      <article class="card journal-card">
+        <div class="card-head"><div><p class="eyebrow">JURNAL</p><h2>Observasi terakhir</h2></div><span id="journalState" class="pill neutral">BELUM ADA</span></div>
+        <div id="journalEmpty" class="journal-empty">Belum ada observasi exposure dari worker.</div>
+        <div id="journalData" hidden><div class="journal-row"><span>Event</span><strong id="journalKind">—</strong></div><div class="journal-row"><span>Round</span><strong id="journalRound">—</strong></div><div class="journal-row"><span>Exposure teramati</span><strong id="journalExposure">—</strong></div><div class="journal-row"><span>Tip</span><strong id="journalTip">—</strong></div></div>
+        <div class="stale-note"><span>i</span><span>Exposure ini <strong>historis dan teramati</strong>, bukan saldo atau settlement saat ini.</span></div>
+      </article>
+    </section>
+
+    <section class="card events-card" aria-labelledby="eventsTitle"><div class="card-head"><div><p class="eyebrow">LOG RINGKAS</p><h2 id="eventsTitle">Peristiwa worker</h2></div><span id="lastChecked">Terakhir diperiksa —</span></div><ol id="eventsList" class="events-list"><li class="empty-event">Menunggu status pertama…</li></ol></section>
+
+    <section class="notice-grid"><article class="notice"><span class="notice-icon">↯</span><div><strong>Server memblokir start?</strong><p>Worker CLI yang sudah berjalan di laptop tidak dapat diadopsi atau dihentikan dari sini. Hentikan worker lama dengan <code>Ctrl+C</code> di terminal; jangan hapus jurnal.</p></div></article><article class="notice subtle"><span class="notice-icon">◉</span><div><strong>Aplikasi teramati, bukan settlement</strong><p>Status aplikasi bukan bukti finalitas transaksi atau saldo on-chain.</p></div></article></section>
+    <footer><span>RESET MNR · sesi lokal</span><span>Polling otomatis setiap 2 detik · tidak ada auto-restart</span></footer>
+  </main>
+  <script src="app.js" defer></script>
+</body>
+</html>
